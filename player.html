@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>The Bard's Tribunal — Player</title>
+<link href="https://fonts.googleapis.com/css2?family=UnifrakturMaguntia&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400;1,600&family=IM+Fell+English:ital@0;1&display=swap" rel="stylesheet">
+<script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
+<style>
+  :root {
+    --ink: #0d0b08;
+    --parchment: #f5ead6;
+    --gold: #c9a84c;
+    --gold-dim: rgba(201,168,76,.35);
+    --blood: #7a1515;
+    --green-bright: #8fd98f;
+    --red-bright: #c06060;
+    --surface: rgba(245,234,214,.04);
+    --border: rgba(201,168,76,.18);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body {
+    background:var(--ink); color:var(--parchment);
+    font-family:'Cormorant Garamond', serif;
+    min-height:100vh; min-height:100dvh;
+    overflow-x:hidden; user-select:none;
+  }
+  body::before {
+    content:''; position:fixed; inset:0; pointer-events:none; z-index:0;
+    background:
+      radial-gradient(ellipse at 15% 40%, rgba(139,26,26,.08) 0%, transparent 55%),
+      radial-gradient(ellipse at 85% 60%, rgba(201,168,76,.05) 0%, transparent 55%);
+  }
+  .screen {
+    display:none; position:relative; z-index:1;
+    min-height:100vh; min-height:100dvh;
+    padding:1.5rem; flex-direction:column; align-items:center; justify-content:center; gap:1.2rem;
+  }
+  .screen.active { display:flex; }
+
+  .ornament { color:var(--gold); opacity:.4; font-size:1.1rem; letter-spacing:.7rem; text-align:center; }
+
+  /* INPUTS */
+  .field-group { display:flex; flex-direction:column; gap:.4rem; width:100%; max-width:340px; }
+  .field-group label { font-family:'IM Fell English', serif; font-style:italic; font-size:.85rem; opacity:.5; }
+  .field-group input {
+    background:var(--surface); border:1px solid var(--border);
+    color:var(--parchment); font-family:'Cormorant Garamond', serif;
+    font-size:1.1rem; padding:.65rem 1rem; outline:none; transition:border-color .2s; width:100%;
+    letter-spacing:.05em;
+  }
+  .field-group input:focus { border-color:var(--gold); }
+  .field-group input::placeholder { opacity:.3; }
+
+  /* BUTTONS */
+  .btn {
+    font-family:'IM Fell English', serif; font-size:1.1rem;
+    padding:.75rem 2.2rem; border:1.5px solid var(--gold);
+    background:transparent; color:var(--gold); cursor:pointer;
+    letter-spacing:.08em; transition:all .22s; position:relative; overflow:hidden;
+    touch-action:manipulation;
+  }
+  .btn::before { content:''; position:absolute; inset:0; background:var(--gold); transform:scaleX(0); transform-origin:left; transition:transform .22s; z-index:-1; }
+  .btn:active, .btn:hover { color:var(--ink); }
+  .btn:active::before, .btn:hover::before { transform:scaleX(1); }
+  .btn:disabled { opacity:.3; cursor:not-allowed; }
+  .btn:disabled:active, .btn:disabled:hover { color:var(--gold); }
+  .btn:disabled::before { transform:scaleX(0) !important; }
+
+  /* JOIN SCREEN */
+  #join-screen { text-align:center; }
+  h1.main-title {
+    font-family:'UnifrakturMaguntia', cursive;
+    font-size:clamp(2.5rem,11vw,4.5rem); color:var(--gold);
+    text-shadow:0 0 60px rgba(201,168,76,.4), 2px 3px 0 #1a1000;
+    line-height:1; animation:candleFlicker 12s infinite;
+  }
+  @keyframes candleFlicker { 0%,89%,94%,100%{opacity:1} 90%{opacity:.8} 92%{opacity:.95} 93%{opacity:.82} }
+  .api-section { width:100%; max-width:340px; }
+  .api-toggle { font-family:'IM Fell English', serif; font-style:italic; font-size:.82rem; color:var(--gold); opacity:.45; cursor:pointer; text-decoration:underline; background:none; border:none; }
+  .api-toggle:hover { opacity:.7; }
+  .conn-status { font-family:'IM Fell English', serif; font-style:italic; font-size:.85rem; opacity:.5; text-align:center; }
+  .conn-status.ok { color:var(--green-bright); opacity:.7; }
+  .conn-status.err { color:var(--red-bright); opacity:.9; }
+
+  /* WAITING SCREEN */
+  #waiting-screen { text-align:center; }
+  .wait-title { font-family:'UnifrakturMaguntia', cursive; font-size:2.2rem; color:var(--gold); }
+  .wait-name  { font-family:'IM Fell English', serif; font-size:1.3rem; opacity:.7; margin-top:-.4rem; }
+  .wait-pulse { font-family:'IM Fell English', serif; font-style:italic; font-size:.9rem; opacity:.4; animation:blink 2s infinite; }
+  @keyframes blink { 0%,100%{opacity:.4} 50%{opacity:.15} }
+
+  /* SCOREBOARD */
+  .score-strip {
+    display:flex; gap:.4rem; flex-wrap:wrap; justify-content:center; width:100%; max-width:420px;
+  }
+  .score-chip {
+    border:1px solid var(--border); padding:.35rem .7rem;
+    background:var(--surface); display:flex; flex-direction:column; align-items:center; min-width:70px;
+    transition:all .3s;
+  }
+  .score-chip.me { border-color:var(--gold); background:rgba(201,168,76,.08); }
+  .score-chip.leader { box-shadow:0 0 14px rgba(201,168,76,.15); }
+  .score-chip.buzzed { border-color:#fff; background:rgba(255,255,255,.12); animation:buzzFlash .4s; }
+  @keyframes buzzFlash { 0%{background:rgba(255,255,255,.3);transform:scale(1.1)} 100%{} }
+  .sc-name  { font-family:'IM Fell English', serif; font-size:.72rem; opacity:.65; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:70px; }
+  .sc-score { font-family:'UnifrakturMaguntia', cursive; font-size:1.6rem; color:var(--gold); line-height:1; }
+  .sc-you   { font-size:.6rem; color:var(--gold); opacity:.5; font-style:italic; }
+
+  /* ROUND INFO */
+  .round-info { text-align:center; }
+  .round-label { font-family:'IM Fell English', serif; font-size:.78rem; letter-spacing:.15em; text-transform:uppercase; opacity:.38; }
+  .round-name-p { font-family:'UnifrakturMaguntia', cursive; font-size:1.7rem; color:var(--gold); line-height:1.1; }
+  .q-counter { font-family:'IM Fell English', serif; font-style:italic; font-size:.82rem; opacity:.4; }
+
+  /* TIMER */
+  .timer-row { display:flex; align-items:center; width:100%; max-width:420px; gap:.8rem; }
+  .timer-bar-wrap { flex:1; height:3px; background:rgba(201,168,76,.12); }
+  .timer-bar-fill { height:100%; background:var(--gold); transition:background .3s; }
+  .timer-bar-fill.urgent { background:var(--blood); }
+  .timer-num { font-family:'UnifrakturMaguntia', cursive; font-size:1.8rem; color:var(--gold); min-width:32px; text-align:right; line-height:1; }
+  .timer-num.urgent { color:var(--blood); animation:pulse .5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
+  /* QUESTION */
+  .question-card {
+    width:100%; max-width:420px; border:1px solid var(--border);
+    background:rgba(13,11,8,.85); padding:1.3rem 1.5rem; position:relative;
+    animation:cardIn .35s cubic-bezier(.22,1,.36,1);
+  }
+  @keyframes cardIn { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+  .question-card::before, .question-card::after { content:''; position:absolute; width:11px; height:11px; border-color:var(--gold); border-style:solid; opacity:.4; }
+  .question-card::before { top:-1px; left:-1px; border-width:2px 0 0 2px; }
+  .question-card::after  { bottom:-1px; right:-1px; border-width:0 2px 2px 0; }
+  .q-type-badge { font-family:'IM Fell English', serif; font-style:italic; font-size:.72rem; opacity:.4; letter-spacing:.1em; text-transform:uppercase; margin-bottom:.45rem; }
+  .q-text { font-size:1.1rem; line-height:1.6; }
+  .q-text em { font-style:italic; color:rgba(245,234,214,.82); }
+  .q-text.hidden { filter:blur(6px); user-select:none; pointer-events:none; opacity:.4; }
+  .q-toggle-btn {
+    font-family:'IM Fell English', serif; font-style:italic; font-size:.75rem;
+    background:none; border:none; color:var(--gold); opacity:.35; cursor:pointer;
+    margin-top:.6rem; padding:0; letter-spacing:.05em; transition:opacity .2s;
+    touch-action:manipulation;
+  }
+  .q-toggle-btn:hover { opacity:.65; }
+
+  /* BUZZ BUTTON — big, tactile, finger-friendly */
+  .buzz-zone { width:100%; max-width:420px; display:flex; flex-direction:column; align-items:center; gap:.7rem; }
+
+  .buzz-btn {
+    width:100%; max-width:420px; height:90px;
+    font-family:'UnifrakturMaguntia', cursive; font-size:2.2rem;
+    color:var(--gold); background:transparent;
+    border:2px solid var(--gold);
+    cursor:pointer; position:relative; overflow:hidden;
+    transition:all .15s; touch-action:manipulation;
+    display:flex; align-items:center; justify-content:center; gap:.6rem;
+    letter-spacing:.1em;
+  }
+  .buzz-btn::before { content:''; position:absolute; inset:0; background:var(--gold); transform:scaleX(0); transform-origin:left; transition:transform .15s; z-index:0; }
+  .buzz-btn:active::before, .buzz-btn:hover::before { transform:scaleX(1); }
+  .buzz-btn:active, .buzz-btn:hover { color:var(--ink); }
+  .buzz-btn > * { position:relative; z-index:1; }
+  .buzz-btn:disabled { opacity:.25; cursor:not-allowed; border-color:rgba(245,234,214,.2); color:rgba(245,234,214,.3); }
+  .buzz-btn:disabled::before { transform:scaleX(0) !important; }
+  .buzz-btn:disabled:active, .buzz-btn:disabled:hover { color:rgba(245,234,214,.3); }
+  .buzz-btn.buzzing { animation:buzzPulse .3s ease-out; border-color:#fff; }
+  @keyframes buzzPulse { 0%{transform:scale(1)} 30%{transform:scale(1.04)} 100%{transform:scale(1)} }
+
+  /* STATUS */
+  .player-status {
+    font-family:'IM Fell English', serif; font-size:.95rem;
+    text-align:center; min-height:1.8rem; opacity:.5; font-style:italic;
+  }
+  .player-status.buzzed-in { color:var(--gold); opacity:1; font-size:1.05rem; }
+  .player-status.locked-out { color:var(--red-bright); opacity:.7; }
+  .player-status.correct { color:var(--green-bright); opacity:1; font-size:1.05rem; }
+  .player-status.wrong { color:var(--red-bright); opacity:1; }
+
+  /* ANSWER OPTIONS — shown only when this player has buzzed */
+  .answers-panel { width:100%; max-width:420px; display:none; flex-direction:column; gap:.5rem; }
+  .answers-panel.show { display:flex; }
+  .answer-btn {
+    width:100%; padding:1rem 1.1rem;
+    font-family:'Cormorant Garamond', serif; font-size:1.05rem;
+    border:1px solid rgba(245,234,214,.18); background:rgba(245,234,214,.04);
+    color:var(--parchment); cursor:pointer; text-align:left;
+    display:flex; gap:.8rem; align-items:flex-start; line-height:1.4;
+    transition:all .15s; touch-action:manipulation; position:relative; overflow:hidden;
+  }
+  .answer-btn::before { content:''; position:absolute; inset:0; background:rgba(201,168,76,.12); transform:scaleX(0); transform-origin:left; transition:transform .15s; }
+  .answer-btn:active::before, .answer-btn:hover::before { transform:scaleX(1); }
+  .answer-btn.correct { border-color:#4a8c4a !important; background:rgba(74,140,74,.18) !important; color:var(--green-bright) !important; }
+  .answer-btn.wrong   { border-color:var(--blood) !important; background:rgba(122,21,21,.15) !important; color:var(--red-bright) !important; }
+  .answer-btn.reveal  { border-color:rgba(74,140,74,.45) !important; background:rgba(74,140,74,.06) !important; }
+  .ans-key { font-family:'UnifrakturMaguntia', cursive; font-size:1.2rem; color:var(--gold); opacity:.5; flex-shrink:0; position:relative; z-index:1; }
+  .ans-text { position:relative; z-index:1; }
+  .answer-btn:disabled { cursor:default; }
+  .answer-btn:disabled::before { transform:scaleX(0) !important; }
+
+  /* FEEDBACK */
+  .feedback { width:100%; max-width:420px; padding:.8rem 1.1rem; border:1px solid; display:none; text-align:center; font-family:'IM Fell English', serif; font-size:.92rem; }
+  .feedback.show { display:block; }
+  .feedback.correct-fb { border-color:#4a8c4a; background:rgba(74,140,74,.1); color:var(--green-bright); }
+  .feedback.wrong-fb   { border-color:var(--blood); background:rgba(122,21,21,.1); color:var(--red-bright); }
+  .explanation { display:block; font-family:'Cormorant Garamond', serif; font-style:italic; font-size:.88rem; opacity:.75; margin-top:.3rem; }
+
+  /* INTERMISSION */
+  #intermission-screen { text-align:center; }
+  .inter-title-p { font-family:'UnifrakturMaguntia', cursive; font-size:2.2rem; color:var(--gold); }
+  .inter-scores-p { display:flex; flex-wrap:wrap; gap:.7rem; justify-content:center; margin:.8rem 0; }
+  .inter-chip-p { border:1px solid var(--border); padding:.7rem 1.1rem; min-width:100px; }
+  .inter-chip-p.top-dog { border-color:var(--gold); background:rgba(201,168,76,.09); }
+  .inter-chip-p .ic-name  { font-family:'IM Fell English', serif; font-size:.88rem; opacity:.7; }
+  .inter-chip-p .ic-score { font-family:'UnifrakturMaguntia', cursive; font-size:2.4rem; color:var(--gold); }
+  .inter-chip-p.me-chip   { outline:1px solid rgba(201,168,76,.4); outline-offset:3px; }
+
+  /* FINAL */
+  #final-screen { text-align:center; }
+  .winner-crown { font-size:4rem; animation:crownBob 2.2s ease-in-out infinite, crownGlow 2.2s ease-in-out infinite; }
+  @keyframes crownBob  { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-9px)} }
+  @keyframes crownGlow { 0%,100%{filter:drop-shadow(0 0 8px rgba(201,168,76,.3))} 50%{filter:drop-shadow(0 0 28px rgba(201,168,76,.75))} }
+  .winner-label { font-family:'IM Fell English', serif; font-style:italic; font-size:1rem; opacity:.55; }
+  .winner-name  { font-family:'UnifrakturMaguntia', cursive; font-size:3.2rem; color:var(--gold); }
+  .final-board-p { display:flex; flex-direction:column; gap:.35rem; max-width:340px; width:100%; margin:.7rem auto; }
+  .final-row-p { display:flex; justify-content:space-between; align-items:center; padding:.5rem .9rem; border-bottom:1px solid rgba(201,168,76,.12); }
+  .final-row-p:first-child { border-top:1px solid rgba(201,168,76,.12); }
+  .final-row-p.me-row { background:rgba(201,168,76,.06); }
+  .fp-pos  { font-family:'UnifrakturMaguntia', cursive; font-size:1.4rem; color:var(--gold); width:28px; }
+  .fp-name { font-family:'IM Fell English', serif; font-size:.95rem; flex:1; text-align:left; padding-left:.5rem; }
+  .fp-pts  { font-family:'Cormorant Garamond', serif; font-size:1rem; opacity:.7; }
+
+  .confetti-piece { position:fixed; width:8px; height:8px; border-radius:1px; pointer-events:none; z-index:999; opacity:0; animation:confettiFall linear forwards; }
+  @keyframes confettiFall { 0%{opacity:1;transform:translateY(-20px) rotate(0deg)} 100%{opacity:0;transform:translateY(100vh) rotate(720deg)} }
+
+  hr.divider { border:none; border-top:1px solid rgba(201,168,76,.12); width:100%; max-width:420px; }
+</style>
+</head>
+<body>
+
+<!-- ══ JOIN ══ -->
+<div id="join-screen" class="screen active">
+  <div class="ornament">✦ ✦ ✦</div>
+  <h1 class="main-title">The Bard's<br>Tribunal</h1>
+  <p style="font-family:'IM Fell English',serif;font-style:italic;font-size:.9rem;opacity:.45;">Present yourself to the court</p>
+
+  <div class="field-group">
+    <label>Your name</label>
+    <input type="text" id="player-name" placeholder="Enter your name" maxlength="20" autocomplete="off">
+  </div>
+  <div class="field-group">
+    <label>Room code</label>
+    <input type="text" id="room-code" placeholder="e.g. AB3X" maxlength="4"
+      style="text-transform:uppercase;letter-spacing:.3em;font-size:1.3rem;text-align:center;"
+      autocomplete="off">
+  </div>
+
+  <div class="api-section">
+    <button class="api-toggle" onclick="toggleApiField()">▸ Ably API key (if needed)</button>
+    <div id="api-field" style="display:none;margin-top:.5rem;">
+      <input type="text" id="ably-key" placeholder="Ably API key" style="width:100%;background:rgba(245,234,214,.04);border:1px solid rgba(201,168,76,.18);color:var(--parchment);font-family:'Cormorant Garamond',serif;font-size:.95rem;padding:.5rem .8rem;outline:none;">
+    </div>
+  </div>
+
+  <div class="conn-status" id="conn-status">Enter your name and room code, then join.</div>
+  <button class="btn" onclick="joinGame()">Enter the Tribunal</button>
+</div>
+
+<!-- ══ WAITING ══ -->
+<div id="waiting-screen" class="screen">
+  <div class="ornament">✦ ✦ ✦</div>
+  <div class="wait-title">Awaiting the Host</div>
+  <div class="wait-name" id="wait-name"></div>
+  <div class="wait-pulse">The tribunal convenes shortly…</div>
+  <div id="waiting-roster" class="inter-scores-p" style="margin-top:.5rem;"></div>
+</div>
+
+<!-- ══ GAME ══ -->
+<div id="game-screen" class="screen">
+  <div class="score-strip" id="score-strip"></div>
+  <hr class="divider">
+  <div class="round-info">
+    <div class="round-label">Round <span id="round-num"></span> of 4</div>
+    <div class="round-name-p" id="round-name"></div>
+    <div class="q-counter" id="q-counter"></div>
+  </div>
+  <div class="timer-row">
+    <div class="timer-bar-wrap"><div class="timer-bar-fill" id="timer-bar" style="width:100%"></div></div>
+    <div class="timer-num" id="timer-num">—</div>
+  </div>
+  <div class="question-card" id="question-card">
+    <div class="q-type-badge" id="q-type-badge"></div>
+    <div class="q-text" id="q-text">Awaiting question…</div>
+    <button class="q-toggle-btn" id="q-toggle" onclick="toggleQuestion()">Hide question</button>
+  </div>
+
+  <div class="buzz-zone">
+    <div class="player-status" id="player-status">Waiting for the host to begin…</div>
+    <button class="buzz-btn" id="buzz-btn" onclick="sendBuzz()" disabled>
+      <span>⚡</span><span>Buzz In</span>
+    </button>
+    <div class="answers-panel" id="answers-panel"></div>
+    <div class="feedback" id="feedback"></div>
+  </div>
+</div>
+
+<!-- ══ INTERMISSION ══ -->
+<div id="intermission-screen" class="screen">
+  <div class="ornament">✦ ✦ ✦</div>
+  <div class="inter-title-p" id="inter-title-p"></div>
+  <p style="font-family:'IM Fell English',serif;font-style:italic;opacity:.45;font-size:.88rem;" id="inter-sub-p"></p>
+  <div class="inter-scores-p" id="inter-scores-p"></div>
+</div>
+
+<!-- ══ FINAL ══ -->
+<div id="final-screen" class="screen">
+  <div class="winner-crown">♛</div>
+  <div class="winner-label">Victor of the Tribunal</div>
+  <div class="winner-name" id="winner-name-p"></div>
+  <div class="final-board-p" id="final-board-p"></div>
+  <div class="ornament" style="margin-top:.8rem;">✦ ✦ ✦</div>
+  <button class="btn" onclick="location.reload()" style="margin-top:.8rem;">Play Again</button>
+</div>
+
+<script>
+let ably       = null;
+let channel    = null;
+let myId       = null;
+let myName     = '';
+
+// ──────────────────────────────────────────
+//  DEPLOYMENT: paste your Ably root API key here to skip
+//  the paste-on-load step. Leave as '' to use the input.
+// ──────────────────────────────────────────
+const ABLY_KEY_HARDCODED = '';
+let currentPlayers = [];
+let currentScores  = {};
+let currentOptions = [];
+let currentPhase   = 'idle';
+let isBuzzedIn     = false;
+let isLockedOut    = false;
+let timerInterval  = null;
+
+// ──────────────────────────────────────────
+//  AUDIO
+// ──────────────────────────────────────────
+let audioCtx=null;
+function getAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)();return audioCtx;}
+function playTone(freq,type,dur,vol=.18,delay=0){
+  try{const ctx=getAudio(),osc=ctx.createOscillator(),g=ctx.createGain();osc.connect(g);g.connect(ctx.destination);osc.type=type;osc.frequency.setValueAtTime(freq,ctx.currentTime+delay);g.gain.setValueAtTime(0,ctx.currentTime+delay);g.gain.linearRampToValueAtTime(vol,ctx.currentTime+delay+.02);g.gain.exponentialRampToValueAtTime(.001,ctx.currentTime+delay+dur);osc.start(ctx.currentTime+delay);osc.stop(ctx.currentTime+delay+dur);}catch(e){}
+}
+function soundBuzz()    { playTone(660,'square',.08,.12); }
+function soundCorrect() { [523,659,784].forEach((n,i)=>playTone(n,'sine',.25,.15,i*.12)); }
+function soundWrong()   { playTone(220,'sawtooth',.08,.1);playTone(180,'sawtooth',.2,.1,.1); }
+function soundTick()    { playTone(880,'sine',.06,.06); }
+function soundFanfare() { [523,659,784,1047].forEach((n,i)=>playTone(n,'sine',.4,.2,i*.13)); }
+
+function launchConfetti(n=60){
+  const cols=['#c9a84c','#f5ead6','#8b1a1a','#8fd98f','#fff'];
+  for(let i=0;i<n;i++){const el=document.createElement('div');el.className='confetti-piece';el.style.cssText=`left:${Math.random()*100}vw;top:-20px;background:${cols[Math.floor(Math.random()*cols.length)]};animation-duration:${1.8+Math.random()*2}s;animation-delay:${Math.random()*.8}s;transform:rotate(${Math.random()*360}deg);`;document.body.appendChild(el);setTimeout(()=>el.remove(),4000);}
+}
+
+// ──────────────────────────────────────────
+//  SCREEN NAV
+// ──────────────────────────────────────────
+function showScreen(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');}
+
+function toggleApiField(){
+  const f=document.getElementById('api-field');
+  f.style.display=f.style.display==='none'?'block':'none';
+}
+
+// ──────────────────────────────────────────
+//  JOIN
+// ──────────────────────────────────────────
+function joinGame() {
+  myName = document.getElementById('player-name').value.trim();
+  const code = document.getElementById('room-code').value.trim().toUpperCase();
+  const key  = ABLY_KEY_HARDCODED || document.getElementById('ably-key').value.trim();
+
+  if (!myName) { setStatus('Enter your name to proceed.', false); return; }
+  if (code.length !== 4) { setStatus('Enter a 4-character room code.', false); return; }
+  if (!key) { setStatus('Enter your Ably API key.', false); return; }
+
+  // Persist id across page reloads for rejoin
+  myId = sessionStorage.getItem('tribunal-player-id') || 'player-' + Math.random().toString(36).substring(2,9);
+  sessionStorage.setItem('tribunal-player-id', myId);
+  sessionStorage.setItem('tribunal-player-name', myName);
+  sessionStorage.setItem('tribunal-room-code', code);
+  sessionStorage.setItem('tribunal-ably-key', key);
+
+  setStatus('Connecting…', null);
+  connectPlayer(key, code);
+}
+
+function connectPlayer(key, code) {
+  try {
+    ably = new Ably.Realtime({ key, clientId: myId });
+    ably.connection.on('connected', () => {
+      channel = ably.channels.get('tribunal-' + code);
+      subscribeToHost();
+      channel.publish('player:join', { id: myId, name: myName });
+      document.getElementById('wait-name').textContent = myName;
+      showScreen('waiting-screen');
+    });
+    ably.connection.on('failed', () => setStatus('Connection failed — check your key.', false));
+    ably.connection.on('disconnected', () => {
+      // Auto-rejoin on reconnect
+      setTimeout(() => attemptRejoin(), 2000);
+    });
+  } catch(e) { setStatus('Error: ' + e.message, false); }
+}
+
+function attemptRejoin() {
+  const key  = sessionStorage.getItem('tribunal-ably-key');
+  const code = sessionStorage.getItem('tribunal-room-code');
+  myId   = sessionStorage.getItem('tribunal-player-id');
+  myName = sessionStorage.getItem('tribunal-player-name');
+  if (!key || !code || !myId) return;
+  if (ably) { try { ably.close(); } catch(e){} }
+  connectPlayer(key, code);
+}
+
+// Auto-rejoin if returning to page mid-session
+window.addEventListener('load', () => {
+  const key  = sessionStorage.getItem('tribunal-ably-key');
+  const code = sessionStorage.getItem('tribunal-room-code');
+  myId   = sessionStorage.getItem('tribunal-player-id');
+  myName = sessionStorage.getItem('tribunal-player-name');
+  if (key && code && myId && myName) {
+    // Pre-fill and auto-join
+    document.getElementById('player-name').value = myName;
+    document.getElementById('room-code').value = code;
+    if (!ABLY_KEY_HARDCODED) document.getElementById('ably-key').value = key;
+    connectPlayer(key, code);
+  }
+  if (ABLY_KEY_HARDCODED) {
+    document.querySelector('.api-section').style.display = 'none';
+  }
+});
+
+function setStatus(msg, ok) {
+  const el = document.getElementById('conn-status');
+  el.textContent = msg;
+  el.className = 'conn-status' + (ok===true?' ok':ok===false?' err':'');
+}
+
+// ──────────────────────────────────────────
+//  SUBSCRIBE
+// ──────────────────────────────────────────
+function subscribeToHost() {
+  channel.subscribe('host:roster', (msg) => {
+    currentPlayers = msg.data.players || [];
+    currentScores  = msg.data.scores  || {};
+    renderWaitingRoster();
+  });
+
+  channel.subscribe('host:question', (msg) => {
+    showScreen('game-screen');
+    renderQuestion(msg.data);
+  });
+
+  channel.subscribe('host:phase', (msg) => {
+    handlePhase(msg.data);
+  });
+
+  channel.subscribe('host:scores', (msg) => {
+    currentPlayers = msg.data.players || [];
+    currentScores  = msg.data.scores  || {};
+    renderScoreStrip();
+  });
+
+  channel.subscribe('host:intermission', (msg) => {
+    currentPlayers = msg.data.players || [];
+    currentScores  = msg.data.scores  || {};
+    renderIntermission(msg.data.round);
+  });
+
+  channel.subscribe('host:final', (msg) => {
+    currentPlayers = msg.data.players || [];
+    currentScores  = msg.data.scores  || {};
+    renderFinal();
+  });
+}
+
+function renderWaitingRoster() {
+  const el = document.getElementById('waiting-roster');
+  el.innerHTML = '';
+  currentPlayers.forEach(p => {
+    const chip = document.createElement('div');
+    chip.className = 'inter-chip-p' + (p.id===myId?' me-chip':'');
+    chip.innerHTML = `<div class="ic-name">${p.name}${p.id===myId?' (you)':''}</div>`;
+    el.appendChild(chip);
+  });
+}
+
+// ──────────────────────────────────────────
+//  QUESTION RENDER
+// ──────────────────────────────────────────
+function renderQuestion(data) {
+  currentOptions = data.options;
+  isBuzzedIn  = false;
+  isLockedOut = false;
+  currentPhase = 'buzzing';
+
+  document.getElementById('round-num').textContent  = data.roundIndex + 1;
+  document.getElementById('round-name').textContent = data.roundName;
+  document.getElementById('q-counter').textContent  = `Question ${data.qInRound+1} of ${data.totalInRound}`;
+  document.getElementById('q-type-badge').textContent = data.type;
+  document.getElementById('q-text').innerHTML = data.q;
+
+  // Reset card animation
+  const card = document.getElementById('question-card');
+  card.style.animation='none'; card.offsetHeight; card.style.animation='';
+
+  // Reset feedback
+  const fb = document.getElementById('feedback');
+  fb.className='feedback'; fb.innerHTML='';
+
+  // Reset answers panel
+  document.getElementById('answers-panel').classList.remove('show');
+  document.getElementById('answers-panel').innerHTML = '';
+
+  // Enable buzz
+  setPlayerStatus('idle', 'Press BUZZ IN when you know the answer!');
+  setBuzzEnabled(true);
+
+  renderScoreStrip();
+  startClientTimer(data.timerSeconds);
+}
+
+// ──────────────────────────────────────────
+//  PHASE HANDLER
+// ──────────────────────────────────────────
+function handlePhase(data) {
+  if (data.phase === 'close-answers') {
+    document.getElementById('answers-panel').classList.remove('show');
+    setBuzzEnabled(false);
+    return;
+  }
+
+  if (data.phase === 'answering') {
+    if (data.buzzedId === myId) {
+      // I buzzed in — show answer options
+      isBuzzedIn = true;
+      setBuzzEnabled(false);
+      setPlayerStatus('buzzed-in', 'You buzzed in — choose your answer!');
+      showAnswerOptions();
+    } else {
+      // Someone else buzzed
+      const p = currentPlayers.find(x=>x.id===data.buzzedId);
+      setBuzzEnabled(false);
+      setPlayerStatus('idle', `${p?.name || 'Someone'} has buzzed in…`);
+      document.getElementById('answers-panel').classList.remove('show');
+    }
+    renderScoreStripBuzzing(data.buzzedId);
+  }
+
+  if (data.phase === 'wrong') {
+    if (data.buzzedId === myId) {
+      isLockedOut = true;
+      isBuzzedIn  = false;
+      soundWrong();
+      setPlayerStatus('locked-out', '✗ Wrong — you\'re locked out for this question');
+      document.getElementById('answers-panel').classList.remove('show');
+      setBuzzEnabled(false);
+    } else {
+      // Re-enable buzz for unlocked players
+      if (!isLockedOut) {
+        setBuzzEnabled(true);
+        setPlayerStatus('idle', 'They got it wrong — buzz in!');
+      }
+    }
+  }
+
+  if (data.phase === 'buzzing') {
+    // Reopened after a wrong answer
+    if (!isLockedOut) {
+      setBuzzEnabled(true);
+      isBuzzedIn = false;
+      setPlayerStatus('idle', 'Buzz in!');
+    }
+    currentPhase = 'buzzing';
+  }
+
+  if (data.phase === 'done') {
+    clearInterval(timerInterval);
+    currentPhase = 'done';
+    setBuzzEnabled(false);
+    document.getElementById('answers-panel').classList.remove('show');
+    revealOptions(data.correctIndex, data.buzzedId);
+    if (data.buzzedId === myId) {
+      if (data.scored) {
+        soundCorrect();
+        setPlayerStatus('correct', '✓ Correct! Point scored.');
+      } else {
+        setPlayerStatus('wrong', '✗ Wrong answer.');
+      }
+    } else if (isLockedOut) {
+      setPlayerStatus('locked-out', 'Better luck next question.');
+    } else {
+      setPlayerStatus('idle', data.scored ? `${currentPlayers.find(x=>x.id===data.buzzedId)?.name||'Someone'} got it!` : 'No one got it.');
+    }
+    showFeedback(data.correctIndex, data.buzzedId);
+  }
+}
+
+// ──────────────────────────────────────────
+//  BUZZ
+// ──────────────────────────────────────────
+function sendBuzz() {
+  if (currentPhase !== 'buzzing' || isLockedOut) return;
+  soundBuzz();
+  isBuzzedIn = true;
+  currentPhase = 'answering_sent';
+  setBuzzEnabled(false);
+  setPlayerStatus('buzzed-in', 'Buzzed in! Awaiting host confirmation…');
+  const btn = document.getElementById('buzz-btn');
+  btn.classList.add('buzzing');
+  setTimeout(()=>btn.classList.remove('buzzing'), 400);
+  channel.publish('player:buzz', { id: myId, name: myName });
+}
+
+// ──────────────────────────────────────────
+//  ANSWER OPTIONS
+// ──────────────────────────────────────────
+function showAnswerOptions() {
+  const panel = document.getElementById('answers-panel');
+  panel.innerHTML = '';
+  currentOptions.forEach((opt, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'answer-btn';
+    btn.id = 'ans-' + i;
+    btn.innerHTML = `<span class="ans-key">${i+1}</span><span class="ans-text">${opt}</span>`;
+    btn.onclick = () => sendAnswer(i);
+    panel.appendChild(btn);
+  });
+  panel.classList.add('show');
+}
+
+function sendAnswer(index) {
+  // Disable all answer buttons immediately
+  document.querySelectorAll('.answer-btn').forEach(b=>b.disabled=true);
+  channel.publish('player:answer', { id: myId, optionIndex: index });
+}
+
+function revealOptions(correctIndex, scorerId) {
+  currentOptions.forEach((_, i) => {
+    const btn = document.getElementById('ans-' + i);
+    if (!btn) return;
+    if (i === correctIndex) {
+      btn.classList.add(scorerId === myId ? 'correct' : 'reveal');
+    }
+    btn.disabled = true;
+  });
+}
+
+function showFeedback(correctIndex, scorerId) {
+  const fb = document.getElementById('feedback');
+  fb.classList.add('show');
+  if (scorerId === myId) {
+    fb.classList.add('correct-fb');
+    fb.innerHTML = '✓ You scored a point!';
+  } else if (correctIndex >= 0) {
+    fb.classList.add('wrong-fb');
+    fb.innerHTML = `The answer was: <em>${currentOptions[correctIndex] || '—'}</em>`;
+  } else {
+    fb.classList.add('wrong-fb');
+    fb.innerHTML = "Time's up.";
+  }
+}
+
+// ──────────────────────────────────────────
+//  HELPERS
+// ──────────────────────────────────────────
+function toggleQuestion() {
+  const el = document.getElementById('q-text');
+  const btn = document.getElementById('q-toggle');
+  const hidden = el.classList.toggle('hidden');
+  btn.textContent = hidden ? 'Show question' : 'Hide question';
+}
+
+function setBuzzEnabled(on) {
+  document.getElementById('buzz-btn').disabled = !on;
+}
+
+function setPlayerStatus(cls, txt) {
+  const el = document.getElementById('player-status');
+  el.className = 'player-status' + (cls !== 'idle' ? ' ' + cls : '');
+  el.textContent = txt;
+}
+
+// ──────────────────────────────────────────
+//  SCORE STRIP
+// ──────────────────────────────────────────
+function renderScoreStrip() { renderScoreStripBuzzing(null); }
+function renderScoreStripBuzzing(buzzedId) {
+  const strip = document.getElementById('score-strip');
+  strip.innerHTML = '';
+  const maxScore = Math.max(0, ...currentPlayers.map(p=>currentScores[p.id]||0));
+  [...currentPlayers].sort((a,b)=>(currentScores[b.id]||0)-(currentScores[a.id]||0)).forEach(p => {
+    const chip = document.createElement('div');
+    let cls = 'score-chip';
+    if (p.id === myId) cls += ' me';
+    if ((currentScores[p.id]||0)===maxScore&&maxScore>0) cls += ' leader';
+    if (p.id === buzzedId) cls += ' buzzed';
+    chip.className = cls;
+    chip.innerHTML = `<div class="sc-name" title="${p.name}">${p.name}</div><div class="sc-score">${currentScores[p.id]||0}</div>${p.id===myId?'<div class="sc-you">you</div>':''}`;
+    strip.appendChild(chip);
+  });
+}
+
+// ──────────────────────────────────────────
+//  CLIENT-SIDE TIMER (visual only)
+// ──────────────────────────────────────────
+function startClientTimer(seconds) {
+  clearInterval(timerInterval);
+  let t = seconds;
+  const bar = document.getElementById('timer-bar');
+  const num = document.getElementById('timer-num');
+  bar.style.transition = 'none';
+  bar.style.width = '100%';
+  bar.className = 'timer-bar-fill';
+  num.className = 'timer-num';
+  num.textContent = t;
+  setTimeout(() => {
+    bar.style.transition = `width ${seconds}s linear`;
+    bar.style.width = '0%';
+  }, 50);
+  timerInterval = setInterval(() => {
+    t--;
+    num.textContent = t;
+    if (t <= 5) { bar.className='timer-bar-fill urgent'; num.className='timer-num urgent'; soundTick(); }
+    if (t <= 0) clearInterval(timerInterval);
+  }, 1000);
+}
+
+// ──────────────────────────────────────────
+//  INTERMISSION
+// ──────────────────────────────────────────
+function renderIntermission(completedRound) {
+  showScreen('intermission-screen');
+  document.getElementById('inter-title-p').textContent = `End of Round ${completedRound+1}`;
+  document.getElementById('inter-sub-p').textContent = completedRound < 3 ? `Next: Round ${completedRound+2}` : 'The Final Reckoning awaits.';
+  const container = document.getElementById('inter-scores-p');
+  container.innerHTML = '';
+  const maxScore = Math.max(0, ...currentPlayers.map(p=>currentScores[p.id]||0));
+  [...currentPlayers].sort((a,b)=>(currentScores[b.id]||0)-(currentScores[a.id]||0)).forEach(p => {
+    const chip = document.createElement('div');
+    chip.className = 'inter-chip-p' + ((currentScores[p.id]||0)===maxScore&&maxScore>0?' top-dog':'') + (p.id===myId?' me-chip':'');
+    chip.innerHTML = `<div class="ic-name">${p.name}${p.id===myId?' (you)':''}</div><div class="ic-score">${currentScores[p.id]||0}</div>`;
+    container.appendChild(chip);
+  });
+}
+
+// ──────────────────────────────────────────
+//  FINAL
+// ──────────────────────────────────────────
+function renderFinal() {
+  showScreen('final-screen');
+  const sorted = [...currentPlayers].map(p=>({...p,score:currentScores[p.id]||0})).sort((a,b)=>b.score-a.score);
+  const winner = sorted[0];
+  document.getElementById('winner-name-p').textContent = winner?.name || '—';
+  if (winner?.id === myId) { soundFanfare(); setTimeout(()=>launchConfetti(60),300); }
+  const board = document.getElementById('final-board-p');
+  board.innerHTML = '';
+  const medals=['♛','♜','♝','♞'];
+  sorted.forEach((p,i)=>{
+    const row=document.createElement('div');
+    row.className='final-row-p'+(p.id===myId?' me-row':'');
+    row.innerHTML=`<div class="fp-pos">${medals[i]||i+1}</div><div class="fp-name">${p.name}${p.id===myId?' ✦':''}</div><div class="fp-pts">${p.score} pt${p.score!==1?'s':''}</div>`;
+    board.appendChild(row);
+  });
+}
+
+// ──────────────────────────────────────────
+//  ENTER KEY TO JOIN
+// ──────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.getElementById('join-screen').classList.contains('active')) joinGame();
+});
+</script>
+</body>
+</html>
